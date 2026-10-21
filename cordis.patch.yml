@@ -1,0 +1,13 @@
+# dsh-complugin bundle patch: one host-plane row.
+#
+# Everything this plugin does is driven by `lib/modules/*` plus the `complugin`
+# settings namespace, so the row stays deliberately thin: no defaults live here.
+# Field defaults are declared once, in code (`defineField({ default })`), and the
+# settings layer only ever carries what the user actually changed. That keeps a
+# future module additive — a new file plus one line in `lib/modules/index.js`,
+# with no patch edit and no migration.
+- insert:
+    - id: complugin
+      name: dsh-complugin
+      config:
+        enabled: true

@@ -1,0 +1,63 @@
+{
+  "name": "dsh-complugin",
+  "version": "1.0.0",
+  "description": "DSH 功能补全插件：把自动压缩、自动续写、视觉桥、推理强度补丁四件事收进一个面板。Settings -> Plugins -> 插件配置 显示为「DSH功能补全插件」。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "docs",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZFXing-lite/dsh-complugin.git"
+  },
+  "homepage": "https://github.com/ZFXing-lite/dsh-complugin#readme",
+  "bugs": {
+    "url": "https://github.com/ZFXing-lite/dsh-complugin/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "complugin",
+    "auto-compact",
+    "auto-continue",
+    "vision",
+    "reasoning-effort"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-session": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.2"
+  }
+}
