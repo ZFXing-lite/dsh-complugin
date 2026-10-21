@@ -68,7 +68,7 @@ function makeHost(options = {}) {
 	};
 
 	const ctx = {
-		logger: { info: record("info"), warn: record("warn"), error: record("error"), debug: record("debug") },
+		logger: options.logger ?? { info: record("info"), warn: record("warn"), error: record("error"), debug: record("debug") },
 		llm,
 		settings: services.settings,
 		inject: (names, callback) => {
@@ -223,4 +223,35 @@ test("teardown removes every route and leaves no listener behind", async () => {
 	assert.equal(host.routes.size >= 5, true);
 	host.dispose();
 	assert.equal(host.routes.size, 0);
+});
+
+test("an accessor-based host logger (cordis style) cannot break the entry", async () => {
+	// The real host logger exposes its levels as accessors, and the function a
+	// caller receives needs its receiver. Pulling `logger.error` out and calling
+	// it detached throws "this is not a function" — that used to abort the whole
+	// plugin load, because the failure happened inside the error reporter.
+	const seen = [];
+	const sink = { info: [], warn: [], error: [] };
+	const logger = {};
+	for (const level of ["info", "warn", "error", "debug"]) {
+		Object.defineProperty(logger, level, {
+			configurable: true,
+			enumerable: true,
+			get() {
+				const receiver = this;
+				return function (...args) {
+					if (receiver !== logger) throw new TypeError("this is not a function");
+					const line = args.map(String).join(" ");
+					(sink[level] ?? seen).push(line);
+					seen.push(line);
+				};
+			}
+		});
+	}
+
+	const host = makeHost({ logger });
+	assert.equal(host.routes.size >= 5, true, "routes still mount with an accessor logger");
+	assert.equal(seen.length > 0, true, "the entry logged through the host logger");
+	assert.equal(seen.every((line) => line.startsWith("complugin: ")), true);
+	host.dispose();
 });
