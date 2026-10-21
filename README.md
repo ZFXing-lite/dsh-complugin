@@ -100,7 +100,10 @@ git clone https://github.com/ZFXing-lite/dsh-complugin.git
 ## 开发 / Development
 
 ```bash
-node --test          # 45 个测试：注册表、字段、补丁、迁移、面板 API、视觉桥、决策引擎、前端渲染
+node --test          # 46 个测试：注册表、字段、补丁、迁移、面板 API、视觉桥、决策引擎、前端渲染
+
+# 可选：用无头 Chrome 加载真实前端，检查浏览器那半边有没有报错
+node scripts/check-panel.mjs "http://127.0.0.1:3080/?token=TOKEN"
 ```
 
 仓库结构：
@@ -112,6 +115,7 @@ lib/
   core/                 框架层：字段、注册表、存储、迁移、补丁、路由、纯函数
   modules/              功能层：每个文件一个功能
 docs/MODULE-CONTRACT.md 模块契约
+scripts/                开发辅助：无头浏览器冒烟
 test/                   测试
 ```
 
@@ -149,6 +153,7 @@ Settings → Plugins → plugin configuration, titled **DSH功能补全插件**.
 `lib/modules/index.js`. The panel, the settings namespace, logging, migration and
 patch handling are generic — see `docs/MODULE-CONTRACT.md`.
 
-**Tests**: `node --test` (45 assertions, no network, no browser).
+**Tests**: `node --test` (46 assertions, no network, no browser). Optional browser
+smoke: `node scripts/check-panel.mjs <web-url-with-token>`.
 
 MIT.
