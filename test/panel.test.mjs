@@ -34,7 +34,9 @@ function makeHost(options = {}) {
 	const routes = new Map();
 	const disposers = [];
 	const watchers = new Set();
-	const document = { enabled: true, modules: {} };
+	let releaseInject = () => {};
+	let deferredOnce = false;
+	const document = options.document ?? { enabled: true, modules: {} };
 	const llm = options.llm ?? new LlmRuntime();
 
 	const record = (level) => (message) => logs.push({ level, message: String(message) });
@@ -74,6 +76,13 @@ function makeHost(options = {}) {
 		inject: (names, callback) => {
 			const service = services[names[0]];
 			if (service === undefined) return () => false;
+			if (options.deferredInject === true && names[0] === "settings" && deferredOnce === false) {
+				// Mimic a slow settings provider: only the plugin's own first request
+				// is late. A module asking for the same service later gets it at once.
+				deferredOnce = true;
+				releaseInject = () => callback({ [names[0]]: service });
+				return () => true;
+			}
 			callback({ [names[0]]: service });
 			return () => true;
 		},
@@ -125,6 +134,7 @@ function makeHost(options = {}) {
 		routes,
 		document,
 		call,
+		releaseInject: () => releaseInject(),
 		dispose: () => {
 			for (const fn of disposers) fn();
 		}
@@ -253,5 +263,32 @@ test("an accessor-based host logger (cordis style) cannot break the entry", asyn
 	assert.equal(host.routes.size >= 5, true, "routes still mount with an accessor logger");
 	assert.equal(seen.length > 0, true, "the entry logged through the host logger");
 	assert.equal(seen.every((line) => line.startsWith("complugin: ")), true);
+	host.dispose();
+});
+
+test("a module mounted before the settings scope answered re-reads its row", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	// A slow provider: the early-mount fallback wins the race, so the vision
+	// bridge snapshots defaults even though the stored row is complete.
+	const host = makeHost({
+		deferredInject: true,
+		document: { enabled: true, modules: { visionBridge: { baseURL: "https://vision.test/v1", model: "vision-x" } } }
+	});
+	t.mock.timers.tick(1600);
+
+	const before = await host.call("/api/complugin/status");
+	const beforeVision = before.payload.modules.find((module) => module.id === "visionBridge");
+	assert.equal(beforeVision.status.ready, false);
+	assert.ok(beforeVision.status.line.includes("baseURL"), `defaults are expected first: ${beforeVision.status.line}`);
+
+	// The scope answers. Mounting is a no-op by now; the broadcast is what makes
+	// every module re-read its own row.
+	host.releaseInject();
+	await new Promise((resolve) => setImmediate(resolve));
+
+	const after = await host.call("/api/complugin/status");
+	const afterVision = after.payload.modules.find((module) => module.id === "visionBridge");
+	assert.equal(afterVision.status.line.includes("baseURL"), false, `stored endpoint must be picked up: ${afterVision.status.line}`);
+	assert.equal(afterVision.fields.find((field) => field.key === "model").value, "vision-x");
 	host.dispose();
 });
