@@ -1,7 +1,7 @@
 {
   "name": "dsh-complugin",
-  "version": "1.0.0",
-  "description": "DSH 功能补全插件：把自动压缩、自动续写、视觉桥、推理强度补丁四件事收进一个面板。Settings -> Plugins -> 插件配置 显示为「DSH功能补全插件」。",
+  "version": "1.1.0",
+  "description": "DSH 功能补全插件：把自动压缩、自动续写、视觉桥、推理强度补丁四件事收进一个面板，并支持一键检查/拉取仓库更新。入口在 设置 -> 插件 -> 功能补全（与「插件配置」「插件列表」同级）。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

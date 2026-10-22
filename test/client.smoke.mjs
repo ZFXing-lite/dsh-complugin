@@ -60,9 +60,9 @@ let registration = null;
 const cleanups = [];
 const ctx = {
 	slots: {
-		inject: (name, generator) => {
-			assert.equal(name, "settings.plugin.item");
-			generator().next();
+		inject: (name, thunk) => {
+			assert.equal(name, "settings.plugins.tab");
+			thunk();
 		},
 		register: (spec, component) => {
 			registration = { spec, component };
@@ -76,8 +76,10 @@ const ctx = {
 };
 moduleExports.apply(ctx);
 
-assert.ok(registration, "the panel registers into settings.plugin.item");
-assert.equal(registration.spec.key, "complugin", "registered under the complugin namespace");
+assert.ok(registration, "the panel registers into settings.plugins.tab");
+assert.equal(registration.spec.id, "complugin", "the tab is keyed by the complugin namespace");
+assert.equal(registration.spec.order, 1, "the tab sits right after 插件配置 (order 0) and before 插件列表 (order 10)");
+assert.equal(registration.spec.label(), "功能补全", "the tab carries a short label");
 assert.equal(typeof registration.component, "function", "the registered value is a component");
 
 // Render once with a synthesized status payload and inspect the tree.
@@ -154,4 +156,25 @@ assert.match(flatReversed, /回滚/u, "the patch block offers apply and revert")
 assert.match(flatReversed, /重新检测/u, "the patch block offers a re-check");
 
 for (const cleanup of cleanups) cleanup();
+
+// ── regression: the injected API must carry the value resolvers ──────────────
+// Without these the renderer falls through to `Object.prototype.valueOf`, every
+// control receives an object, and the whole panel renders inert (switches stuck
+// grey, inputs rejected) while the master switch keeps working — the exact
+// symptom that shipped in 1.0.0.
+assert.equal(typeof injected.valueOf, "function", "the injected API resolves field values");
+assert.equal(typeof injected.effectiveValues, "function", "the injected API resolves whole-module values");
+assert.equal(typeof injected.checkUpdate, "function", "the injected API can check for updates");
+assert.equal(typeof injected.applyUpdate, "function", "the injected API can apply an update");
+
+injected.store.set({
+	loading: false, error: "", data: payload, updatedAt: Date.now(), drafts: {}, busy: {}, notices: {}
+});
+const module = payload.modules[0];
+const field = module.fields[0];
+assert.equal(injected.valueOf(module, field), true, "an untouched field reads its stored value");
+injected.setField(module.id, field.key, false);
+assert.equal(injected.valueOf(module, field), false, "a staged draft wins over the stored value");
+assert.deepEqual(injected.effectiveValues(module), { enabled: false }, "action payloads see the draft too");
+
 console.log("ok - client bundle loads, registers its slot, and renders the merged panel");

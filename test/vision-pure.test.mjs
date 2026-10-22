@@ -72,7 +72,7 @@ test("readiness: missing endpoint, model or key keeps the plugin off", () => {
 	assert.deepEqual(half.missing, ["apiKey"]);
 	assert.equal(half.keySource, "none");
 
-	const armed = readinessOf(normalizeConfig({ baseURL: "https://a.test/v1", model: "vlm" }), "sk-live");
+	const armed = readinessOf(normalizeConfig({ baseURL: "https://a.test/v1", model: "vlm" }), "test-credential");
 	assert.equal(armed.active, true);
 	assert.deepEqual(armed.missing, []);
 	assert.equal(armed.keySource, "credentials");
