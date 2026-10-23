@@ -102,11 +102,21 @@ const payload = {
 			fields: [{ key: "mode", label: "接管方式", type: "select", group: "basic", default: "wrap", value: "wrap", options: [{ value: "wrap", label: "运行时接管" }] }],
 			actions: [{ id: "recheck", label: "重新检测", needs: [] }],
 			status: { ready: true, sign: "on", badge: "接管中", line: "运行时就绪", entries: [{ level: "info", text: "已接管" }], stats: [], patch: { id: "reasoning-effort", state: "clean", detail: "未应用" } }
+		},
+		{
+			id: "visionBridge", title: "视觉桥", summary: "文本模型看图", kind: "hook", legacy: "vision-bridge", docs: "", enabled: true, patch: null,
+			fields: [{ key: "model", label: "视觉模型", type: "text", group: "basic", default: "", value: "", hint: "" }],
+			actions: [
+				{ id: "models", label: "拉取模型", needs: [], route: "/api/complugin/vision/models", resultField: "model" },
+				{ id: "test", label: "测试视觉", needs: [], route: "/api/complugin/vision/test" }
+			],
+			status: { ready: false, sign: "warn", badge: "未就绪", line: "缺项：apiKey", entries: [], stats: [], patch: null }
 		}
 	]
 };
 injected.store.set({
-	loading: false, error: "", data: payload, updatedAt: Date.now(), drafts: {}, busy: {}, notices: {}
+	loading: false, error: "", data: payload, updatedAt: Date.now(),
+	drafts: {}, busy: {}, notices: {}, results: {}, open: null
 });
 
 const tree = registration.component(injected);
@@ -144,16 +154,43 @@ assert.match(flat, /自动压缩/u, "module cards come from the status payload")
 assert.match(flat, /推理等级/u, "a second module renders from the same generic renderer");
 assert.match(flat, /含补丁/u, "a module that declares a patch is flagged in the header");
 assert.match(flat, /2 个模块就绪|2\b/u, "the summary chips count ready modules");
+// The tab must start short: no card auto-opens, so no field markup is on screen.
+assert.doesNotMatch(flat, /启用/u, "cards start collapsed — field labels are not rendered");
+assert.doesNotMatch(flat, /文件补丁/u, "the patch block only renders inside an open card");
 
-// The first card opens by default; reverse the array so the patch block renders too.
-injected.store.set({
-	loading: false, error: "", data: { ...payload, modules: [...payload.modules].reverse() },
-	updatedAt: Date.now(), drafts: {}, busy: {}, notices: {}
+// Opening a card reveals its basic group…
+injected.toggleModule("autoCompact");
+const flatOpen = texts(registration.component(injected)).join(" | ");
+assert.match(flatOpen, /启用/u, "the open card renders its basic fields");
+assert.match(flatOpen, /基础/u, "the field groups render as collapsible heads");
+
+// …and the accordion closes the previous card, keeping the tab short.
+injected.toggleModule("reasoningEffort");
+const flatAccordion = texts(registration.component(injected)).join(" | ");
+assert.match(flatAccordion, /文件补丁/u, "the open card renders its patch block");
+assert.match(flatAccordion, /回滚/u, "the patch block offers apply and revert");
+assert.match(flatAccordion, /重新检测/u, "the patch block offers a re-check");
+assert.doesNotMatch(flatAccordion, /启用/u, "the previously open card closed (accordion)");
+
+// Action outcomes persist and render: model chips + transcription text.
+injected.setResult("visionBridge:models", {
+	ok: true,
+	detail: "拉到 2 个模型",
+	data: { models: [{ id: "glm-4v-flash", ownedBy: "zhipu" }, { id: "glm-4v-plus", ownedBy: "zhipu" }] }
 });
-const flatReversed = texts(registration.component(injected)).join(" | ");
-assert.match(flatReversed, /文件补丁/u, "the patch block renders for a module that declares one");
-assert.match(flatReversed, /回滚/u, "the patch block offers apply and revert");
-assert.match(flatReversed, /重新检测/u, "the patch block offers a re-check");
+injected.setResult("visionBridge:test", { ok: true, detail: "glm-4v-flash 用时 5 ms", data: { text: "蓝色", ms: 5 } });
+injected.toggleModule("visionBridge");
+const flatResults = texts(registration.component(injected)).join(" | ");
+assert.match(flatResults, /glm-4v-flash/u, "拉取模型 renders the returned models");
+assert.match(flatResults, /点模型名就填进/u, "the chips explain they pick the model for you");
+assert.match(flatResults, /蓝色/u, "测试视觉 shows the transcription text");
+assert.match(flatResults, /5 ms/u, "测试视觉 shows the timing");
+
+// Dismissing an outcome removes it without touching the other.
+injected.clearResult("visionBridge:test");
+const flatDismissed = texts(registration.component(injected)).join(" | ");
+assert.doesNotMatch(flatDismissed, /蓝色/u, "dismissing removes one outcome");
+assert.match(flatDismissed, /glm-4v-flash/u, "the other outcome stays");
 
 for (const cleanup of cleanups) cleanup();
 
@@ -168,7 +205,8 @@ assert.equal(typeof injected.checkUpdate, "function", "the injected API can chec
 assert.equal(typeof injected.applyUpdate, "function", "the injected API can apply an update");
 
 injected.store.set({
-	loading: false, error: "", data: payload, updatedAt: Date.now(), drafts: {}, busy: {}, notices: {}
+	loading: false, error: "", data: payload, updatedAt: Date.now(),
+	drafts: {}, busy: {}, notices: {}, results: {}, open: null
 });
 const module = payload.modules[0];
 const field = module.fields[0];

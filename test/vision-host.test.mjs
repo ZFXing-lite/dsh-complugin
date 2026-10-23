@@ -413,7 +413,14 @@ test("models route lists ids and reports endpoint errors without throwing", asyn
 	try {
 		const listed = await respond({ baseURL: "https://vision.test/v1" });
 		assert.equal(listed.ok, true);
-		assert.deepEqual(listed.models.map((model) => model.id), ["vision-model-1", "vision-model-2"]);
+		// Top level is a flat id list; `data.models` keeps {id, ownedBy} for the picker.
+		assert.deepEqual(listed.models, ["vision-model-1", "vision-model-2"]);
+		assert.deepEqual(listed.data.models.map((model) => model.id), ["vision-model-1", "vision-model-2"]);
+
+		// Staged (draft) values win over the saved ones — the panel sends drafts.
+		const staged = await respond({ baseURL: "https://ignored.test/v1", values: { baseURL: "https://vision.test/v1" } });
+		assert.equal(staged.ok, true);
+		assert.match(staged.url, /vision\.test/u);
 
 		// No endpoint in the body → the saved endpoint is used.
 		const saved = await respond({});

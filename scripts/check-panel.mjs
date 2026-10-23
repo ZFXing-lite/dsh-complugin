@@ -19,8 +19,13 @@ import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const url = process.argv[2];
-const chromePath = process.argv[3] ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
-const port = Number(process.argv[4] ?? 9223);
+// Accept the port in either arg slot: [chrome-path] [port] or just [port].
+let chromePath = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+let port = 9223;
+for (const arg of process.argv.slice(3)) {
+	if (/^\d+$/u.test(arg)) port = Number(arg);
+	else chromePath = arg;
+}
 if (!url) throw new Error("usage: node check-panel.mjs <url-with-token> [chrome-path] [cdp-port]");
 
 const profile = `${process.env.TEMP ?? "/tmp"}\\cdp-complugin-${Date.now()}`;
@@ -60,8 +65,36 @@ let nextId = 1;
 function send(method, params = {}) {
 	const id = nextId++;
 	socket.send(JSON.stringify({ id, method, params }));
-	return new Promise((resolve) => pending.set(id, resolve));
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			pending.delete(id);
+			reject(new Error(`CDP timeout: ${method}`));
+		}, 25000);
+		pending.set(id, (value) => {
+			clearTimeout(timer);
+			resolve(value);
+		});
+	});
 }
+
+// A hung check is worse than a failing one: force a verdict after 150s.
+const trace = [];
+const mark = (step) => {
+	trace.push(`${new Date().toISOString().slice(14, 22)} ${step}`);
+};
+const watchdog = setTimeout(() => {
+	console.log(JSON.stringify({ ok: false, fatal: "watchdog after 150s", trace, problems }, null, 2));
+	try { socket.close(); } catch { /* gone */ }
+	chrome.kill();
+	process.exit(1);
+}, 150000);
+watchdog.unref?.();
+process.on("uncaughtException", (error) => {
+	console.log(JSON.stringify({ ok: false, fatal: String(error?.message ?? error), trace, problems }, null, 2));
+	try { socket.close(); } catch { /* gone */ }
+	chrome.kill();
+	process.exit(1);
+});
 
 socket.addEventListener("message", (event) => {
 	const message = JSON.parse(event.data);
@@ -89,7 +122,9 @@ await send("Runtime.enable");
 await send("Log.enable");
 await send("Page.enable");
 await send("Page.navigate", { url });
+mark("navigated");
 await sleep(9000);
+mark("page settled");
 
 async function evaluate(expression) {
 	const result = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
@@ -161,10 +196,26 @@ if (opened) {
 const enteredPlugins = await clickText("插件");
 await sleep(400);
 const enteredTab = await clickText("功能补全", "BUTTON") || await clickText("功能补全");
+mark(`entered tab=${enteredTab}`);
 
 const tabs = await evaluate(`(() => window.__all()
 	.filter((n) => n.getAttribute && n.getAttribute("role") === "tab")
 	.map((n) => ({ text: (n.textContent ?? "").trim(), selected: n.getAttribute("aria-selected") })))()`);
+
+const collapsedInputs = await evaluate(`(() => {
+	const root = window.__panel();
+	if (!root) return null;
+	return window.__all().filter((n) => n.closest(".cp_root") === root && n.tagName === "INPUT").length;
+})()`);
+const collapsedOutcome = await evaluate(`(() => window.__all().filter((n) => n.classList && n.classList.contains("cp_modhead")).map((n) => (n.textContent ?? "").trim()))()`);
+
+// Expand the first module card — the tab starts as a collapsed accordion.
+const firstCard = await evaluate(`(() => { const h = window.__all().find((n) => n.classList && n.classList.contains("cp_modhead")); return h ? window.__rect(h) : null; })()`);
+mark("expanding first card");
+if (firstCard) {
+	await clickAt(firstCard.x, firstCard.y);
+	await sleep(700);
+}
 
 const before = await evaluate("window.__controls()");
 
@@ -199,6 +250,152 @@ if (Array.isArray(labels) && labels.length > 2) {
 
 const after = await evaluate("window.__controls()");
 
+// ── 视觉桥 end-to-end: 拉取模型 → chips → 点选填入 → 测试视觉 ────────────────
+// Opens the 视觉桥 card (accordion closes the other), runs the two actions that
+// had no visible feedback before, and reads the outcome back from the DOM.
+// Real pointer events are proven working on switches, but a click that must hit
+// a card head lower in the scrollable dialog can land on the wrong element once
+// the layout shifts — so every click here verifies its effect and falls back to
+// a DOM-level click (which React sees identically).
+async function clickCard(title) {
+	const head = await evaluate(`(() => {
+		const root = window.__panel();
+		if (!root) return null;
+		const head = window.__all().find((n) => n.closest(".cp_root") === root && n.classList && n.classList.contains("cp_modhead") && (n.textContent ?? "").includes(${JSON.stringify(title)}));
+		if (!head) return null;
+		head.scrollIntoView({ block: "center" });
+		return window.__rect(head);
+	})()`);
+	if (!head) return false;
+	await sleep(250);
+	await clickAt(head.x, head.y);
+	await sleep(600);
+	let open = await evaluate(`(() => {
+		const root = window.__panel();
+		const card = window.__all().find((n) => n.closest(".cp_root") === root && n.classList.contains("cp_mod") && (n.textContent ?? "").includes(${JSON.stringify(title)}));
+		return card ? card.getAttribute("data-open") === "true" : false;
+	})()`);
+	if (!open) {
+		await evaluate(`(() => {
+			const root = window.__panel();
+			const head = window.__all().find((n) => n.closest(".cp_root") === root && n.classList && n.classList.contains("cp_modhead") && (n.textContent ?? "").includes(${JSON.stringify(title)}));
+			if (head) head.click();
+			return true;
+		})()`);
+		await sleep(600);
+		open = await evaluate(`(() => {
+			const root = window.__panel();
+			const card = window.__all().find((n) => n.closest(".cp_root") === root && n.classList.contains("cp_mod") && (n.textContent ?? "").includes(${JSON.stringify(title)}));
+			return card ? card.getAttribute("data-open") === "true" : false;
+		})()`);
+	}
+	return open;
+}
+
+/** Click an action button inside the currently open card by label (verified). */
+async function clickAction(label) {
+	const found = await evaluate(`(() => {
+		const root = window.__panel();
+		if (!root) return null;
+		const b = window.__all().find((n) => n.closest(".cp_root") === root && n.tagName === "BUTTON" && (n.textContent ?? "").trim() === ${JSON.stringify(label)});
+		if (!b || b.disabled) return null;
+		b.scrollIntoView({ block: "center" });
+		return window.__rect(b);
+	})()`);
+	if (!found) return false;
+	await sleep(250);
+	await clickAt(found.x, found.y);
+	await sleep(300);
+	const started = await evaluate(`(() => window.__complugin ? Array.from(window.__complugin.busy.keys()).length > 0 : false)()`);
+	if (started) return true;
+	return await evaluate(`(() => {
+		const root = window.__panel();
+		const b = window.__all().find((n) => n.closest(".cp_root") === root && n.tagName === "BUTTON" && (n.textContent ?? "").trim() === ${JSON.stringify(label)});
+		if (!b || b.disabled) return false;
+		b.click();
+		return true;
+	})()`);
+}
+
+async function waitFor(expression, timeoutMs = 20000) {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const value = await evaluate(expression);
+		if (value) return value;
+		await sleep(700);
+	}
+	return null;
+}
+
+const visionOpened = await clickCard("视觉桥");
+let visionModels = null;
+let visionChipFilled = null;
+let visionTestText = null;
+let visionError = null;
+let visionClick = null;
+if (visionOpened) {
+	mark("vision pull click");
+	const clicked = await clickAction("拉取模型");
+	await sleep(400);
+	// Did the click even reach the action? busy must name it within a moment.
+	visionClick = { clicked, busy: await evaluate(`(() => window.__complugin ? Array.from(window.__complugin.busy.keys()) : null)()`) };
+	if (!clicked) {
+		visionClick.dump = await evaluate(`(() => {
+			const root = window.__panel();
+			if (!root) return null;
+			return {
+				openCards: window.__all().filter((n) => n.closest(".cp_root") === root && n.classList.contains("cp_mod")).map((n) => ({ open: n.getAttribute("data-open"), head: (n.querySelector(".cp_modhead")?.textContent ?? "").trim().slice(0, 40) })),
+				buttons: window.__all().filter((n) => n.closest(".cp_root") === root && n.tagName === "BUTTON").map((n) => (n.textContent ?? "").trim().slice(0, 20))
+			};
+		})()`);
+	}
+	if (clicked) {
+		const chips = await waitFor(`(() => {
+			const root = window.__panel();
+			const chips = window.__all().filter((n) => n.closest(".cp_root") === root && n.classList && n.classList.contains("cp_modelchip"));
+			if (chips.length > 0) return chips.slice(0, 8).map((n) => (n.textContent ?? "").trim());
+			const err = window.__all().find((n) => n.closest(".cp_root") === root && n.classList && n.classList.contains("cp_outcome") && n.getAttribute("data-tone") === "err");
+			if (err) return { error: (err.textContent ?? "").trim().slice(0, 160) };
+			return null;
+		})()`);
+		if (Array.isArray(chips)) {
+			visionModels = chips;
+			// Click the first chip: it must draft into the model field.
+			const chipRect = await evaluate(`(() => {
+				const root = window.__panel();
+				const c = window.__all().find((n) => n.closest(".cp_root") === root && n.classList && n.classList.contains("cp_modelchip"));
+				return c ? { ...window.__rect(c), text: (c.textContent ?? "").trim() } : null;
+			})()`);
+			if (chipRect) {
+				await clickAt(chipRect.x, chipRect.y);
+				await sleep(500);
+				const typed = await evaluate(`(() => {
+					const root = window.__panel();
+					const input = window.__all().find((n) => n.closest(".cp_root") === root && n.tagName === "INPUT" && n.id === "cp_visionBridge_model");
+					return input ? input.value : null;
+				})()`);
+				visionChipFilled = typed === chipRect.text;
+			}
+			// Discard the draft so the check leaves no writes behind.
+			await clickAction("丢弃");
+			await sleep(400);
+		} else if (chips && chips.error) {
+			visionError = chips.error;
+		}
+	}
+	if (await clickAction("测试视觉")) {
+		mark("vision test clicked, waiting pre");
+		const text = await waitFor(`(() => {
+			const root = window.__panel();
+			const pre = window.__all().find((n) => n.closest(".cp_root") === root && n.classList && n.classList.contains("cp_pre"));
+			return pre ? (pre.textContent ?? "").trim().slice(0, 120) : null;
+		})()`, 40000);
+		visionTestText = text;
+		mark("vision test done");
+	}
+}
+
+mark("closing");
 socket.close();
 chrome.kill();
 
@@ -209,6 +406,8 @@ const report = {
 	panelTabEntered: enteredTab,
 	tabs,
 	panelPresent: before !== null,
+	cardsCollapsedByDefault: collapsedInputs !== null && collapsedInputs <= 1,
+	cardsListed: Array.isArray(collapsedOutcome) ? collapsedOutcome.length : 0,
 	switchesBefore: before?.switches ?? null,
 	switchesAfter: after?.switches ?? null,
 	saveEnabledAfterChange: after?.save?.length === 0 || after?.save?.[0] === false,
@@ -216,9 +415,26 @@ const report = {
 	updateChip: (before?.chips ?? []).find((text) => /更新|最新|新版本|git/.test(text)) ?? null,
 	switchResponds: switchFlipped,
 	labelResponds: labelWorks,
+	vision: {
+		click: visionClick,
+		cardOpened: visionOpened,
+		modelsSample: Array.isArray(visionModels) ? visionModels.slice(0, 4) : null,
+		modelsCount: Array.isArray(visionModels) ? visionModels.length : 0,
+		chipFillsModelField: visionChipFilled,
+		testText: visionTestText,
+		error: visionError
+	},
 	problems: problems.slice(0, 12),
 	consoleTail: consoleLines.slice(-8)
 };
-report.ok = report.panelPresent && report.switchResponds === true && report.problems.length === 0;
+report.ok = report.panelPresent
+	&& report.cardsCollapsedByDefault
+	&& report.switchResponds === true
+	&& report.labelResponds === true
+	&& report.vision.error === null
+	&& report.vision.modelsCount > 0
+	&& report.vision.chipFillsModelField === true
+	&& report.vision.testText !== null
+	&& report.problems.length === 0;
 console.log(JSON.stringify(report, null, 2));
 process.exitCode = report.ok ? 0 : 1;
