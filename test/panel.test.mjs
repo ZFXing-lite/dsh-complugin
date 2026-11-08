@@ -153,7 +153,7 @@ test("status describes every module, in panel order, with drawable fields", asyn
 	assert.equal(payload.ok, true);
 	assert.equal(payload.plugin.name, "complugin");
 	assert.equal(payload.namespace, "complugin");
-	assert.deepEqual(payload.modules.map((module) => module.id), ["autoCompact", "autoContinue", "visionBridge", "reasoningEffort"]);
+	assert.deepEqual(payload.modules.map((module) => module.id), ["autoCompact", "autoContinue", "visionBridge", "retryTuning", "reasoningEffort"]);
 	for (const module of payload.modules) {
 		assert.equal(typeof module.title, "string");
 		assert.ok(module.fields.length > 0, `${module.id} must expose fields`);
