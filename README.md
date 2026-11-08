@@ -1,7 +1,7 @@
 # dsh-complugin —— DSH 功能补全插件
 
 给 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai) 用的**一个**插件，
-把常用的几件「小功能」收进同一个面板里：自动压缩、自动继续、视觉桥、推理等级。
+把常用的几件「小功能」收进同一个面板里：自动压缩、自动继续、视觉桥、重试调整、推理等级。
 装完在 **设置 → 插件 → 功能补全** 里就是一个独立页签（和「插件配置」「插件列表」同级），
 全部开关、阈值、密钥都在那儿改，保存即生效；面板右上角还能直接检查并拉取本仓库的更新。
 
@@ -16,9 +16,10 @@
 | **自动压缩** | 上下文快满时自动调用官方压缩引擎，会话不断、活继续干。阈值可调，支持准备态提示。 | 开 |
 | **自动继续** | 一回合结束时如果模型是被截断/出错的，按设定策略自动再推一轮（可选自定义提示词、连击上限、`/continue` 之外的边界控制）。 | 关 |
 | **视觉桥** | 纯文本模型也能「看图」：把图片附件交给任意 OpenAI 兼容的视觉端点转述成文字，再塞回对话，附来源与尺寸标注。带本地缓存。 | 开（需配置） |
+| **重试调整** | 调节模型请求的重试次数与退避延迟（次数 / 初始延迟 / 最大延迟 / 抖动），减少重试对上下文的污染。文件补丁，改完重启生效。 | 默认值 |
 | **推理等级** | 手写声明的模型在菜单里没有「推理等级」时，补上 low / medium / high 三档可选，请求侧同步生效。 | 开 |
 
-四个模块彼此的配置互不干扰，但共享同一个总开关、同一套日志、同一种「恢复默认」。
+五个模块彼此的配置互不干扰，但共享同一个总开关、同一套日志、同一种「恢复默认」。
 
 面板顶部还有 **检查更新 / 更新到 xxxx**：直接比对本地 HEAD 和仓库 `main`，
 落后就 `git pull --ff-only` 拉下去，拉完提示重启 DSH。
@@ -60,7 +61,7 @@ git clone https://github.com/ZFXing-lite/dsh-complugin.git
 
 ```
 ┌ 功能补全  v1.3.0   [检查更新]  [刷新]  [总开关]                 ┐
-│ 3/4 个模块就绪 · 无异常 · 1 个宿主补丁 · 已是最新 7c3bf7b        │
+│ 4/5 个模块就绪 · 无异常 · 2 个宿主补丁 · 已是最新 a20b08f        │
 ├─────────────────────────────────────────────────────────────────┤
 │ ▸ ▍自动压缩      准备 80% / 强制 85%                    监控中   │
 │ ▸ ▍自动继续      续写条件：失败 / 截断，最多 100 次     已开启   │
@@ -68,6 +69,7 @@ git clone https://github.com/ZFXing-lite/dsh-complugin.git
 │     [拉取模型] [测试视觉] [保存密钥] [清空缓存]                  │
 │     ✓ 拉到 15 个模型                     [收起]                 │
 │     (glm-4v-flash) (agnes-flash) (…)  ← 点芯片填进模型字段       │
+│ ▸ ▍重试调整      配置：5 次 / 500ms / 上限 10000ms    默认值   │
 │ ▸ ▍推理等级      运行时接管已就位        含补丁        接管中   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -103,6 +105,8 @@ git clone https://github.com/ZFXing-lite/dsh-complugin.git
 - 目标运行时：DSH `0.1.5-rc.2`（`@deepseek-ai/*` 系列）。
 - 「推理等级」默认走**运行时接管**（包装适配器的取值方法），不写磁盘、升级 DSH 不丢；
   卡片里的「文件补丁」是等价的老办法，升级会被覆盖，留作可选与回滚点。
+- 「重试调整」走**文件补丁**，改 `@deepseek-ai/dsh-llm` 的重试默认常量；
+  应用后需重启 DSH 生效；升级 DSH 会覆盖，面板的「重新检测」会发现并提示重打。
 - 设置只有 `complugin` 一个命名空间；如果你之前单独装过上面某个小插件，
   首次启动会**只补缺失项**地把旧配置继承过来，不覆盖你后来改过的值。
 - 视觉桥的密钥优先读环境变量 `VISION_BRIDGE_API_KEY`，其次才用面板里保存的那份；
@@ -113,7 +117,7 @@ git clone https://github.com/ZFXing-lite/dsh-complugin.git
 ## 开发 / Development
 
 ```bash
-node --test          # 50 个测试：注册表、字段、补丁、迁移、面板 API、视觉桥、决策引擎、更新器、前端渲染
+node --test          # 55 个测试：注册表、字段、补丁、迁移、面板 API、视觉桥、决策引擎、更新器、前端渲染、重试调整
 
 # 用无头 Chrome 驱动真实前端：开设置 → 插件 → 功能补全，点开关、点字段名、看保存按钮醒没醒
 node scripts/check-panel.mjs "http://127.0.0.1:3080/?token=TOKEN"
@@ -143,8 +147,8 @@ MIT
 # dsh-complugin — All-in-one feature pack for DSH
 
 One DSH plugin that bundles the small quality-of-life features most people end up
-installing separately: **auto-compact**, **auto-continue**, **vision bridge** and
-**reasoning-effort defaults**. Everything lives in its own tab: Settings → Plugins →
+installing separately: **auto-compact**, **auto-continue**, **vision bridge**,
+**retry tuning** and **reasoning-effort defaults**. Everything lives in its own tab: Settings → Plugins →
 **功能补全**, next to "插件配置" and "插件列表".
 
 **What it gives you**
@@ -156,6 +160,9 @@ installing separately: **auto-compact**, **auto-continue**, **vision bridge** an
 - *Vision bridge* — lets a text-only route "see": images are transcribed by any
   OpenAI-compatible vision endpoint and re-injected as labelled text, with a
   local cache.
+- *Retry tuning* — adjust model-request retry defaults (max retries, initial/max
+  delay, jitter) to reduce context pollution when retries stack with auto-continue.
+  File patch; restart DSH after applying.
 - *Reasoning effort* — models declared by hand get the low/medium/high selector
   they were missing, on both the menu and the request path.
 - *Self-update* — the panel compares your checkout with `origin/main` and fast-forwards
@@ -168,7 +175,7 @@ installing separately: **auto-compact**, **auto-continue**, **vision bridge** an
 `lib/modules/index.js`. The panel, the settings namespace, logging, migration and
 patch handling are generic — see `docs/MODULE-CONTRACT.md`.
 
-**Tests**: `node --test` (50 tests, no network, no browser). The browser check drives
+**Tests**: `node --test` (55 tests, no network, no browser). The browser check drives
 the real UI over CDP — it opens the tab and clicks a switch, which is what catches an
 inert panel: `node scripts/check-panel.mjs <web-url-with-token>`.
 
