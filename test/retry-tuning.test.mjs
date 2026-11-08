@@ -68,3 +68,31 @@ test("retry-tuning field ranges are sane", () => {
 	assert.ok(initialDelay.min >= 100, "at least 100ms");
 	assert.ok(initialDelay.max <= 60000, "at most 60s");
 });
+
+test("safeConfig clamps maxDelayMs to initialDelayMs when it would be smaller", () => {
+	// Import safeConfig indirectly via patchFactory — the clamped value should be used
+	const patch = mod.patchFactory({ maxRetries: 3, initialDelayMs: 2000, maxDelayMs: 500, jitterRatio: 0.1 });
+	// The replace text should contain maxDelayMs = 2000 (clamped up from 500)
+	assert.ok(patch.replace.includes("DEFAULT_MAX_DELAY_MS = 2000"), "maxDelayMs clamped to initialDelayMs");
+	assert.ok(patch.replace.includes("DEFAULT_INITIAL_DELAY_MS = 2000"), "initialDelayMs preserved");
+});
+
+test("safeConfig does not clamp when maxDelayMs >= initialDelayMs", () => {
+	const patch = mod.patchFactory({ maxRetries: 5, initialDelayMs: 500, maxDelayMs: 10000, jitterRatio: 0.1 });
+	assert.ok(patch.replace.includes("DEFAULT_MAX_DELAY_MS = 10000"), "maxDelayMs not clamped");
+	assert.ok(patch.replace.includes("DEFAULT_INITIAL_DELAY_MS = 500"), "initialDelayMs preserved");
+});
+
+test("safeConfig handles missing/junk values with fallbacks", () => {
+	const patch = mod.patchFactory({});
+	assert.ok(patch.replace.includes("DEFAULT_MAX_RETRIES = 5"), "default maxRetries");
+	assert.ok(patch.replace.includes("DEFAULT_INITIAL_DELAY_MS = 500"), "default initialDelayMs");
+	assert.ok(patch.replace.includes("DEFAULT_MAX_DELAY_MS = 10000"), "default maxDelayMs");
+	assert.ok(patch.replace.includes("DEFAULT_JITTER_RATIO = 0.1"), "default jitterRatio");
+
+	const patch2 = mod.patchFactory({ maxRetries: "abc", initialDelayMs: null, maxDelayMs: -1, jitterRatio: 99 });
+	assert.ok(patch2.replace.includes("DEFAULT_MAX_RETRIES = 5"), "junk maxRetries -> default");
+	assert.ok(patch2.replace.includes("DEFAULT_INITIAL_DELAY_MS = 500"), "null initialDelayMs -> default");
+	assert.ok(patch2.replace.includes("DEFAULT_MAX_DELAY_MS = 10000"), "negative maxDelayMs -> default 10000 (>= initialDelayMs, no clamp)");
+	assert.ok(patch2.replace.includes("DEFAULT_JITTER_RATIO = 0.1"), "out-of-range jitter -> default");
+});
