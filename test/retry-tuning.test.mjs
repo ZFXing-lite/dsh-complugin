@@ -24,7 +24,7 @@ test("retry-tuning module has the expected shape", () => {
 	assert.equal(mod.actions[0].id, "recheck");
 	assert.equal(mod.patch.id, "retry-tuning");
 	assert.equal(mod.patch.package, "@deepseek-ai/dsh-llm");
-	assert.equal(mod.patch.file, "lib/types/retry-policy.js");
+	assert.equal(mod.patch.file, "lib/index.js");
 });
 
 test("retry-tuning defaults match DSH's built-in defaults", () => {
@@ -40,8 +40,8 @@ test("retry-tuning patch targets the 4 DEFAULT constants", () => {
 	const patch = mod.patch;
 	assert.ok(patch.find.includes("DEFAULT_MAX_RETRIES = 5"), "find targets max retries");
 	assert.ok(patch.find.includes("DEFAULT_INITIAL_DELAY_MS = 500"), "find targets initial delay");
-	assert.ok(patch.find.includes("DEFAULT_MAX_DELAY_MS = 10_000"), "find targets max delay");
-	assert.ok(patch.find.includes("DEFAULT_JITTER_RATIO = 0.1"), "find targets jitter");
+	assert.ok(patch.find.includes("DEFAULT_MAX_DELAY_MS = 1e4"), "find targets max delay (bundle format)");
+	assert.ok(patch.find.includes("DEFAULT_JITTER_RATIO = .1"), "find targets jitter (bundle format)");
 	assert.ok(patch.marker.includes("dsh-complugin:retry-tuning"), "marker tags the patch");
 	assert.ok(patch.replace.includes("DEFAULT_MAX_RETRIES = 5"), "default replace keeps 5");
 });
