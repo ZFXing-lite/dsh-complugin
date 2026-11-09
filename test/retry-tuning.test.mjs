@@ -20,8 +20,9 @@ test("retry-tuning module has the expected shape", () => {
 	assert.equal(mod.title, "重试调整");
 	assert.equal(mod.kind, "patch");
 	assert.equal(mod.fields.length, 4, "four configurable parameters");
-	assert.equal(mod.actions.length, 1, "one action: recheck");
+	assert.equal(mod.actions.length, 2, "two actions: recheck + applySettings");
 	assert.equal(mod.actions[0].id, "recheck");
+	assert.equal(mod.actions[1].id, "applySettings");
 	assert.equal(mod.patch.id, "retry-tuning");
 	assert.equal(mod.patch.package, "@deepseek-ai/dsh-llm");
 	assert.equal(mod.patch.file, "lib/index.js");
@@ -51,7 +52,7 @@ test("retry-tuning describeModule serializes for the panel", () => {
 	assert.equal(described.id, "retryTuning");
 	assert.equal(described.title, "重试调整");
 	assert.ok(described.fields.length === 4);
-	assert.ok(described.actions.length === 1);
+	assert.ok(described.actions.length === 2);
 	assert.ok(described.patch !== null, "patch descriptor is exposed for the panel");
 });
 
